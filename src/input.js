@@ -6,7 +6,7 @@ import {captureKeyDown} from "./capturekeys"
 import {DOMChange} from "./domchange"
 import {parseFromClipboard, serializeForClipboard} from "./clipboard"
 import {DOMObserver} from "./domobserver"
-import {selectionBetween, needsCursorWrapper} from "./selection"
+import {selectionFromDOM, selectionToDOM, selectionBetween, needsCursorWrapper} from "./selection"
 import {keyEvent} from "./dom"
 
 // A collection of DOM events that occur within the editor, and callback functions
@@ -20,7 +20,28 @@ export function initInput(view) {
   view.lastKeyCode = null
   view.lastKeyCodeTime = 0
   view.lastClick = {time: 0, x: 0, y: 0, type: ""}
-  view.domObserver = new DOMObserver(view)
+  view.lastSelectionOrigin = null
+  view.lastSelectionTime = 0
+  view.domObserver = new DOMObserver(view, (from, to, typeOver) => {
+    // FIXME unify these into a single piece of code
+    if (from > -1) {
+      let ch = DOMChange.start(view)
+      ch.addRange(from, to)
+      ch.typeOver = typeOver
+      ch.finish()
+    } else {
+      let origin = view.lastSelectionTime > Date.now() - 50 ? view.lastSelectionOrigin : null
+      let newSel = selectionFromDOM(view, origin)
+      if (!view.state.selection.eq(newSel)) {
+        let tr = view.state.tr.setSelection(newSel)
+        if (origin == "pointer") tr.setMeta("pointer", true)
+        else if (origin == "key") tr.scrollIntoView()
+        view.dispatch(tr)
+      } else {
+        selectionToDOM(view)
+      }
+    }
+  })
   view.domObserver.start()
   // Used by hacks like the beforeinput handler to check whether anything happened in the DOM
   view.domChangeCount = 0
@@ -35,6 +56,11 @@ export function initInput(view) {
     })
   }
   ensureListeners(view)
+}
+
+function setSelectionOrigin(view, origin) {
+  view.lastSelectionOrigin = origin
+  view.lastSelectionTime = Date.now()
 }
 
 export function destroyInput(view) {
@@ -86,7 +112,7 @@ editHandlers.keydown = (view, event) => {
   if (view.someProp("handleKeyDown", f => f(view, event)) || captureKeyDown(view, event))
     event.preventDefault()
   else
-    view.selectionReader.poll("key")
+    setSelectionOrigin(view, "key")
 }
 
 editHandlers.keyup = (view, e) => {
@@ -239,7 +265,7 @@ handlers.mousedown = (view, event) => {
   else if ((type == "doubleClick" ? handleDoubleClick : handleTripleClick)(view, pos.pos, pos.inside, event))
     event.preventDefault()
   else
-    view.selectionReader.poll("pointer")
+    setSelectionOrigin(view, "pointer")
 }
 
 class MouseDown {
@@ -284,7 +310,7 @@ class MouseDown {
 
     view.root.addEventListener("mouseup", this.up = this.up.bind(this))
     view.root.addEventListener("mousemove", this.move = this.move.bind(this))
-    view.selectionReader.poll("pointer")
+    setSelectionOrigin(view, "pointer")
   }
 
   done() {
@@ -308,7 +334,7 @@ class MouseDown {
     if (this.allowDefault) {
       // Force a cursor wrapper redraw if this was suppressed (to avoid an issue with IE drag-selection)
       if (browser.ie && needsCursorWrapper(this.view.state)) this.view.updateState(this.view.state)
-      this.view.selectionReader.poll("pointer")
+      setSelectionOrigin(this.view, "pointer")
     } else if (handleSingleClick(this.view, this.pos.pos, this.pos.inside, event, this.selectNode)) {
       event.preventDefault()
     } else if (this.flushed ||
@@ -324,7 +350,7 @@ class MouseDown {
       updateSelection(this.view, Selection.near(this.view.state.doc.resolve(this.pos.pos)), "pointer")
       event.preventDefault()
     } else {
-      this.view.selectionReader.poll("pointer")
+      setSelectionOrigin(this.view, "pointer")
     }
   }
 
@@ -332,13 +358,13 @@ class MouseDown {
     if (!this.allowDefault && (Math.abs(this.event.x - event.clientX) > 4 ||
                                Math.abs(this.event.y - event.clientY) > 4))
       this.allowDefault = true
-    this.view.selectionReader.poll("pointer")
+    setSelectionOrigin(this.view, "pointer")
   }
 }
 
 handlers.touchdown = view => {
   forceDOMFlush(view)
-  view.selectionReader.poll("pointer")
+  setSelectionOrigin(view, "pointer")
 }
 
 handlers.contextmenu = view => forceDOMFlush(view)
