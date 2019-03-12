@@ -230,7 +230,7 @@ export class DecorationSet {
   // asssumed to match.
   find(start, end, predicate) {
     let result = []
-    this.findInner(start == null ? 0 : start, end == null ? 1e9 : end, result, 0, predicate)
+    this.findInner(start == null ? 0 : start, end == null ? 2e8 : end, result, 0, predicate)
     return result
   }
 
