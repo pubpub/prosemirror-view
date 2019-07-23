@@ -40,6 +40,10 @@ export function selectionToDOM(view, takeFocus, force) {
     }
   } else if (!view.editable && !hasSelection(view) && !takeFocus) {
     return
+  } else if (!view.editable) {
+    /* This last else if was added to handle */
+    /* https://github.com/ProseMirror/prosemirror/issues/954 */
+    return
   }
 
   view.domObserver.disconnectSelection()
